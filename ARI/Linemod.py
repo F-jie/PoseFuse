@@ -56,14 +56,15 @@ class Linemod(ARIDataset):
             absZ = abs(modelInfo['min_z'])
             ## 俯视，起点第一象限
             self.keyPoint3D[cls] = [
-                absX, absY, absZ,
-                -absX, absY, absZ,
-                -absX, -absY, absZ,
-                absX, -absY, absZ,
-                absX, absY, -absZ,
-                -absX, absY, -absZ,
+                 absX,  absY,  absZ,
+                -absX,  absY,  absZ,
+                -absX, -absY,  absZ,
+                 absX, -absY,  absZ,
+                 absX,  absY, -absZ,
+                -absX,  absY, -absZ,
                 -absX, -absY, -absZ,
-                absX, -absY, -absZ,
+                 absX, -absY, -absZ,
+                    0,     0,     0,
                 ]
 
 

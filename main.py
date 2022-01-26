@@ -7,4 +7,5 @@ if __name__ == "__main__":
     linemod = Linemod(sourceDir, "linemod")
     coco = ARICOCO(linemod)
 
-    coco.visbbox(os.path.join(sourceDir, "data\\02\\rgb"), 20000)
+    coco.visbbox(os.path.join(sourceDir, "data\\02\\rgb"), [190,8990,910,3763])
+    coco.saveCOCO(os.path.join(sourceDir, "coco\instances_train2017.json"))

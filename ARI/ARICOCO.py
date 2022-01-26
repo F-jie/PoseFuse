@@ -1,5 +1,6 @@
 import os
 import cv2
+import json
 from ARI.ARIAnnotation import ARIDataset
 from TAU.TAUUtils import draw2DBBOX
 
@@ -54,7 +55,7 @@ class ARICOCO(object):
                     "category_id": self.queryIDWithClsID(anno.cls),
                     "segmentation": [0, 0],
                     "area": anno.bbox[2] * anno.bbox[3],
-                    "bbox": anno.bbox,
+                    "bbox": anno.bbox, # [x, y, width, height]
                     "iscrowd": 1,
                 })
                 numberOfAnno = numberOfAnno + 1
@@ -84,14 +85,19 @@ class ARICOCO(object):
             "categories": self.categories()
         }
 
-    def visbbox(self, sourceDir, annoID):
-        numberOfAnno = len(self.jsonData['annotations'])
-        assert annoID < numberOfAnno, "annoID shold less than {}".format(numberOfAnno)
-        anno = self.jsonData['annotations'][annoID]
-        imagePath = os.path.join(sourceDir, "{:04d}.png".format(anno['image_id']))
-        image = cv2.imread(imagePath)
-        image = draw2DBBOX(image.copy(), anno['bbox'])
-        cv2.imshow("ImageWithBBOX2D", image)
-        cv2.waitKey()
-        cv2.destroyAllWindows()
+    def visbbox(self, sourceDir, annoIDs):
+        for annoID in annoIDs:
+            numberOfAnno = len(self.jsonData['annotations'])
+            assert annoID < numberOfAnno, "annoID shold less than {}".format(numberOfAnno)
+            anno = self.jsonData['annotations'][annoID]
+            imagePath = os.path.join(sourceDir, "{:04d}.png".format(anno['image_id']))
+            image = cv2.imread(imagePath)
+            image = draw2DBBOX(image.copy(), anno['bbox'])
+            cv2.imshow("ImageWithBBOX2D", image)
+            cv2.waitKey()
+            cv2.destroyAllWindows()
+
+    def saveCOCO(self, cocoJsonFile):
+        with open(cocoJsonFile, 'w') as fp:
+            json.dump(self.jsonData, fp)
         
