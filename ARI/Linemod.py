@@ -1,11 +1,9 @@
 import os
 
-from django.forms import models
+from ARI.ARIAnnotation import ARIAnnotation2D, ARIDataset, ARIImage
+from TAU.TAUUtils import *
 
-from lib.ARIAnnotation import ARIAnnotation2D, ARIDataset, ARIImage
-from utils.TAUUtils import *
-
-class ARILinemod(ARIDataset):
+class Linemod(ARIDataset):
     intrinsic = np.array([[572.4114, 0., 325.2611],
                           [0., 573.57043, 242.04899],
                           [0., 0., 1.]])

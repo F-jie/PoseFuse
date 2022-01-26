@@ -1,5 +1,5 @@
 import cv2
-from utils.TAUUtils import draw2DBBOX, draw3DBBOX 
+from TAU.TAUUtils import draw2DBBOX, draw3DBBOX 
 
 class ARIAnnotation2D(object):
 

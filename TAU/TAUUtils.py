@@ -25,7 +25,7 @@ def calculateKeyPoint2D(points3D, intrinsic, RT):
     tmp = np.matmul(np.matmul(intrinsic, RT_np), points3D_np)
     tmp[0, :] = tmp[0, :] / tmp[2, :]
     tmp[1, :] = tmp[1, :] / tmp[2, :]
-    res = tmp[:2, :].flatten()
+    res = tmp[:2, :].T.flatten()
     return list(res)
 
 ## draw bbox

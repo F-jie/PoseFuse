@@ -1,5 +1,5 @@
 
-from lib.ARIAnnotation import ARIDataset
+from ARI.ARIAnnotation import ARIDataset
 
 
 class ARICOCO(object):
