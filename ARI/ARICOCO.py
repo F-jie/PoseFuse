@@ -2,7 +2,7 @@ import os
 import cv2
 import json
 from ARI.ARIAnnotation import ARIDataset
-from TAU.TAUUtils import draw2DBBOX
+from ARI.ARIUtils import draw2DBBOX
 
 
 class ARICOCO(object):

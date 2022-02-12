@@ -1,7 +1,7 @@
 import os
 
 from ARI.ARIAnnotation import ARIAnnotation2D, ARIDataset, ARIImage
-from TAU.TAUUtils import *
+from ARI.ARIUtils import *
 
 class Linemod(ARIDataset):
     intrinsic = np.array([[572.4114, 0., 325.2611],
