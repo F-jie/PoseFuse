@@ -1,6 +1,6 @@
 import copy
 from typing import Optional
-from torch import Tensor, nn
+from torch import Tensor, dropout, nn
 import torch
 import torch.nn.functional as F
 
@@ -268,3 +268,15 @@ def _get_activation_fn(activation: str):
         return F.glu
 
     raise RuntimeError(F"activation should be relu/gelu/glu, not {activation}.")
+
+def build_tansformer(args):
+    return Transformer(
+        d_model=args.hidden_dim,
+        dropout=args.dropout,
+        nhead=args.nhead,
+        dim_feedforward=args.dim_feedforward,
+        num_encoder_layers=args.enc_layers,
+        num_decoder_layers=args.dec_layers,
+        normalize_before=args.pre_norm,
+        return_intermediate_dec=True
+    )
