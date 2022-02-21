@@ -1,5 +1,5 @@
 import os
-from ARI.Linemod import Linemod
+from Linemod import Linemod
 from ARI.ARICOCO import ARICOCO
 
 if __name__ == "__main__":

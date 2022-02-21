@@ -1,11 +1,30 @@
+from collections import defaultdict, deque
+import contextlib
+import copy
+from curses import window
 from dis import dis
+import imp
+from lib2to3.pytree import convert
+from struct import iter_unpack
+from tkinter.messagebox import NO
+from tracemalloc import start
 from typing import Optional, List
-from torch import Tensor, tensor
+from unittest import result
+from cv2 import reduce
+from numpy import iterable
+from torch import Tensor, median, tensor
 import torch.distributed as dist
 import torch
 import torchvision
 from torchvision.ops.boxes import box_area
 from packaging import version
+import time
+import datetime
+from pycocotools.cocoeval import COCOeval
+from pycocotools.coco import COCO
+import numpy as np
+import os
+import pickle
 
 if version.parse(torchvision.__version__) < version.parse("0.7"):
     from torchvision.ops import _new_empty_tensor
@@ -33,6 +52,177 @@ class NestedTensor(object):
 
     def __repr__(self) -> str:
         return str(self.tensors)
+
+
+class MetricLogger(object):
+
+    def __init__(self, delimiter="\t") -> None:
+        self.meters = defaultdict(SmoothValue)
+        self.delimiter = delimiter
+
+    def update(self, **kwargs):
+        for k, v in kwargs.items():
+            if isinstance(v, torch.Tensor):
+                v = v.item()
+            assert isinstance(v, (float, int))
+            self.meters[k].update(v)
+
+    def __getattr__(self, attr):
+        if attr in self.meters:
+            return self.meters[attr]
+        if attr in self.__dict__:
+            return self.__dict__[attr]
+        raise AttributeError("'{}' object has no attribute '{}'".format(type(self).__name__, attr))
+
+    def __str__(self) -> str:
+        loss_str = []
+        for name, meter in self.meters.items():
+            loss_str.append(
+                "{}: {}".format(name, str(meter))
+            )
+        return self.delimiter.join(loss_str)
+
+    def synchronize_between_processes(self):
+        for meter in self.meters.values():
+            meter.synchronize_between_processes()
+    
+    def add_meter(self, name, meter):
+        self.meters[name] = meter
+
+    def log_every(self, iterable, print_freq, header=None):
+        i = 0
+        if not header:
+            header = ""
+
+        start_time = time.time()
+        end = time.time()
+
+        iter_time = SmoothValue(fmt="{avg: .4f}")
+        data_time = SmoothValue(fmt="{avg: .4f}")
+        space_fmt = ": " + str(len(str(len(iterable)))) + "d"
+        if torch.cuda.is_available():
+            log_msg = self.delimiter.join([
+                header,
+                "[{0" + space_fmt + "}/{1}]",
+                "eta: {eta}",
+                "{meters}",
+                "time: {time}",
+                "data: {data}",
+                "max mem: {memory: .0f}"
+            ])
+        else:
+            log_msg = self.delimiter.join([
+                header,
+                "[{0" + space_fmt + "}/{1}]",
+                "eta: {eta}",
+                "{meters}",
+                "time: {time}",
+                "data: {data}"
+            ])
+        
+        MB = 1024 * 1024
+        for obj in iterable:
+            data_time.update(time.time() - end)
+            yield obj
+            iter_time.update(time.time - end)
+            if i % print_freq == 0 or i == len(iterable) - 1:
+                eta_seconds = iter_time.global_avg * (len(iterable) - i)
+                eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
+                if torch.cuda.is_available():
+                    print(log_msg.format(
+                        i, len(iterable), eta=eta_string,
+                        meters=str(self),
+                        time=str(iter_time), data=str(data_time)
+                    ))
+            i += 1
+            end = time.time()
+
+        total_time = time.time() - start_time
+        total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+        print("{} Total time: {} ({: .4f} s/ it)".format(
+            header, total_time_str, total_time / len(iterable)
+        ))
+
+
+
+class SmoothValue(object):
+
+    def __init__(self, window_size=20, fmt=None) -> None:
+        if fmt is None:
+            fmt = "{median: .4f} ({global_avg: .4f})"
+        self.deque = deque(maxlen=window_size)
+        self.total = 0.0
+        self.count = 0.0
+        self.fmt = fmt
+
+    def update(self, value, n=1):
+        self.deque.append(value)
+        self.count += n
+        self.total += value * n
+
+    def synchronize_between_processes(self):
+        if not is_dist_avail_and_initialized():
+            return
+        
+        t = torch.tensor([self.count, self.total], dtype=torch.float64, device="cuda")
+        dist.barrier()
+        dist.all_reduce(t)
+        t = t.tolist()
+        self.count = int(t[0])
+        self.total = t[1]
+
+    @property
+    def median(self):
+        d = torch.tensor(list(self.deque))
+        return d.median().item()
+
+    @property
+    def avg(self):
+        d = torch.tensor(list(self.deque), dtype=torch.float32)
+        return d.mean().item()
+
+    @property
+    def global_avg(self):
+        return self.total / self.count
+
+    @property
+    def max(self):
+        return self.deque[-1]
+
+    @property
+    def value(self):
+        return self.deque[-1]
+
+    def __str__(self) -> str:
+        return self.fmt.format(
+            median=self.median,
+            avg=self.avg,
+            global_avg=self.global_avg,
+            max=self.max,
+            value=self.value
+        )
+
+def reduce_dict(input_dict, average=True):
+    word_size = get_world_size()
+    if word_size < 2:
+        return input_dict
+
+    with torch.no_grad():
+        names = []
+        values = []
+
+        for k in sorted(input_dict.keys()):
+            names.append(k)
+            values.append(input_dict[k])
+
+        values = torch.stack(values, dim=0)
+        dist.all_reduce(values)
+        if average:
+            values /= word_size
+        reduced_dict = {k: v for k, v in zip(names, values)}
+
+    return reduced_dict
+
 
 def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
     if tensor_list[0].ndim == 3:
@@ -196,3 +386,186 @@ def dice_loss(inputs, targets, num_boxes):
     denominator = inputs.sum(-1) + targets.sum(-1)
     loss = 1 - (numerator + 1) / (denominator + 1)
     return loss.sum() / num_boxes
+
+def collate_fn(batch):
+    batch = list(zip(*batch))
+    batch[0] = nested_tensor_from_tensor_list(batch[0])
+    return tuple(batch)
+
+class CocoEvaluator(object):
+    
+    def __init__(self, coco_gt, iou_types) -> None:
+        assert isinstance(iou_types, (list, tuple))
+        coco_gt = copy.deepcopy(coco_gt)
+        self.coco_gt = coco_gt
+
+        self.iou_types = iou_types
+        self.coco_eval = {}
+        for iou_type in iou_types:
+            self.coco_eval[iou_type] = COCOeval(coco_gt, iouType=iou_type)
+
+        self.img_ids = []
+        self.eval_imgs = {k: [] for k in iou_types}
+
+    def update(self, predictions):
+        img_ids = list(np.unique(list(predictions.keys())))
+        self.img_ids.extend(img_ids)
+        
+        for iou_type in self.iou_types:
+            results = self.prepare(predictions, iou_type)
+
+            with open(os.devnull, "w") as devnull:
+                with contextlib.redirect_stdout(devnull):
+                    coco_dt = COCO.loadRes(self.coco_gt, results) if results else COCO()
+            coco_eval = self.coco_eval[iou_type]
+
+            coco_eval.cocoDt = coco_dt
+            coco_eval.params.imgIds = list(img_ids)
+            img_ids, eval_imgs = evaluate(coco_eval)
+
+            self.eval_imgs[iou_type].append(eval_imgs)
+
+    def synchronize_between_processes(self):
+        for iou_type in self.iou_types:
+            self.eval_imgs[iou_type] = np.concatenate(self.eval_imgs[iou_type], 2)
+            create_common_coco_eval(self.coco_eval[iou_type], self.img_ids, self.eval_imgs[iou_type])
+
+    def accumulate(self):
+        for coco_eval in self.coco_eval.values():
+            coco_eval.accumulate()
+
+    def summarize(self):
+        for iou_type, coco_eval in self.coco_eval.items():
+            print("Iou metric: {}".format(iou_type))
+            coco_eval.summarize()
+
+    def prepare(self, predictions, iou_type):
+        if iou_type == "bbox":
+            return self.prepare_for_coco_detections(predictions)
+        
+    def prepare_for_coco_detections(self, predictions):
+        coco_results = []
+
+        for original_id, prediction in predictions.items():
+            if len(prediction) == 0:
+                continue
+                
+            boxes = prediction["boxes"]
+            boxes = convert_to_xywh(boxes).tolist()
+            scores = prediction["scores"].tolist()
+            labels = prediction["labels"].tolist()
+
+            coco_results.extend(
+                [
+                    {
+                        "image_id": original_id,
+                        "category_id": labels[k],
+                        "bbox": box,
+                        "score": scores[k]
+                    }
+                    for k, box in enumerate(boxes)
+                ]
+            )
+
+        return coco_results
+
+
+def evaluate(self):
+    p = self.params
+
+    if p.useSegm is not None:
+        p.iouType = "segm" if p.useSegm == 1 else "bbox"
+        print("useSegm (deprecated) is not None, Running {} evaluation".format(p.iouType))
+
+    p.imgIds = list(np.unique(p.imgIds))
+    if p.useCats:
+        p.catIds = list(np.unique(p.catIds))
+    p.maxDets = sorted(p.maxDets)
+    self.params = p
+
+    computeIoU = self.computeIoU
+    self.ious = {
+        (imgId, catId): computeIoU(imgId, catId)
+        for imgId in p.imgIds
+        for catId in p.catIds
+    }
+
+    self._prepare()
+    catIds = p.catIds if p.useCats else [-1]
+
+    evaluateImg = self.evaluateImg
+    maxDet = p.maxDets[-1]
+    evalImgs = [
+        evaluateImg(imgId, catId, areaRng, maxDet)
+        for catId in catIds
+        for areaRng in p.areaRng
+        for imgId in p.imgIds
+    ]
+    evalImgs = np.asarray(evalImgs).reshape(len(catIds), len(p.areaRng))
+    self._paramsEval = copy.deepcopy(self.params)
+
+    return p.imgIds, evalImgs
+
+def create_common_coco_eval(coco_eval, img_ids, eval_imgs):
+    img_ids, eval_imgs = merge(img_ids, eval_imgs)
+    img_ids = list(img_ids)
+    eval_imgs = list(eval_imgs.flatten())
+
+    coco_eval.evalImgs = eval_imgs
+    coco_eval.params.imgIds = img_ids
+    coco_eval.paramsEval = copy.deepcopy(coco_eval.params)
+
+def merge(img_ids, eval_imgs):
+    all_img_ids = all_gether(img_ids)
+    all_eval_imgs = all_gether(eval_imgs)
+
+    merged_img_ids = []
+    for p in all_eval_imgs:
+        merged_img_ids.append(p)
+    
+    merged_eval_imgs = []
+    for p in all_eval_imgs:
+        merged_eval_imgs.append(p)
+
+    merged_img_ids = np.array(merged_img_ids)
+    merged_eval_imgs = np.concatenate(merged_eval_imgs, 2)
+
+    merged_img_ids, idx = np.unique(merged_img_ids, return_index=True)
+    merged_eval_imgs = merged_eval_imgs[..., idx]
+
+    return merged_img_ids, merged_eval_imgs
+
+def all_gether(data):
+    world_size = get_world_size()
+    if world_size == 1:
+        return [data]
+
+    buffer = pickle.dumps(data)
+    storage = torch.ByteStorage.from_buffer(buffer)
+    tensor = torch.ByteTensor(storage).to("cuda")
+
+    local_size = torch.tensor([tensor.numel()], device="cuda")
+    size_list = [torch.tensor([0], device="cuda") for _ in range(world_size)]
+    dist.all_gather(size_list, local_size)
+    size_list = [int(size.item()) for size in size_list]
+    max_size = max(size_list)
+
+    tensor_list = []
+    for _ in size_list:
+        tensor_list.append(torch.empty((max_size,), dtype=torch.uint8, device="cuda"))
+    if local_size != max_size:
+        padding = torch.empty(size=(max_size - local_size,), dtype=torch.uint8, device="cuda")
+        tensor = torch.cat((tensor, padding), dim=0)
+    dist.all_gather(tensor_list, tensor)
+
+    data_list = []
+    for size, tensor in zip(size_list, tensor_list):
+        buffer = tensor.cpu().numpy().tobytes()[:size]
+        data_list.append(pickle.load(buffer))
+
+    return data_list
+
+def convert_to_xywh(boxes):
+    xmin, ymin, xmax, ymax = boxes.unbind(1)
+    return torch.stack((xmin, ymin, xmax - xmin, ymax - ymin), dim=1)
+
