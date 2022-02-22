@@ -1,5 +1,6 @@
 import math
 import sys
+from unittest import result
 from cv2 import reduce
 from numpy import flatnonzero
 import torch
@@ -82,7 +83,7 @@ def evalute(model, criterion, postprocessors, data_loader, base_ds, device, outp
 
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = postprocessors["bbox"](outputs, orig_target_sizes)
-        res = {targets["image_id"].item(): output for target, output in zip(targets, outputs)}
+        res = {targets["image_id"].item(): output for target, output in zip(targets, results)}
         if coco_evaluator is not None:
             coco_evaluator.update(res)
 
