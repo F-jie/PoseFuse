@@ -18,8 +18,8 @@ def transRT2Matrix4X4(R: list, t: list):
 def calculateKeyPoint2D(points3D, intrinsic, RT):
     RT_np = np.array(RT).reshape(3, 4)
 
-    points3D_np = np.array(points3D).reshape(8, 3)
-    pad = np.ones((8, 1))
+    points3D_np = np.array(points3D).reshape(9, 3)
+    pad = np.ones((9, 1))
     points3D_np = np.concatenate((points3D_np, pad), axis=1).T
 
     tmp = np.matmul(np.matmul(intrinsic, RT_np), points3D_np)
@@ -54,7 +54,7 @@ def draw3DBBOX(image, bbox):
     point5 = tuple(bbox[8:10])
     point6 = tuple(bbox[10:12])
     point7 = tuple(bbox[12:14])
-    point8 = tuple(bbox[14:])
+    point8 = tuple(bbox[14:16])
 
     color = (0, 255, 255)
     thickness = 1

@@ -32,6 +32,7 @@ class ARIImage(object):
             cv2.imshow("ImageWithBBOX2D", imageBOX)
             cv2.waitKey()
             cv2.destroyAllWindows()
+            break
     
     def visBBOX3D(self):
         image = cv2.imread(self.filePath)

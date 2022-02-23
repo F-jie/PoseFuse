@@ -43,11 +43,11 @@ class Linemod(ARIDataset):
         for imageId in annos.keys():
             imageInfo = self.parseToStandardAnno(annos[imageId])
             imageInfo.filePath = os.path.join(self.sourceDir, 
-                                        "data\{:02d}\\rgb\{:04d}.png".format(clsId, imageId))
+                                        "data/{:02d}/rgb/{:04d}.png".format(clsId, imageId))
             self.images.append(imageInfo)
 
     def parsekeyPoint3D(self):
-        modelsInfo = load_yaml(os.path.join(self.sourceDir, "models\models_info.yml"))
+        modelsInfo = load_yaml(os.path.join(self.sourceDir, "models/models_info.yml"))
         
         for cls in modelsInfo.keys():
             modelInfo = modelsInfo[cls]
